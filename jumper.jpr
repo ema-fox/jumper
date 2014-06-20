@@ -1,0 +1,325 @@
+(assign chunk-size 100)
+(assign fruit-color "#ee5511")
+
+(def rand (start end)
+  (+ (* (Math.random) (- end start)) start))
+
+(def mutate (x s)
+  (+ x (rand (* -1 s) s)))
+
+(def confine (start x end)
+  (Math.max start (Math.min x end)))
+
+(def rand-color (xs ys)
+  (str "rgb(" (join (map (fn (x y)
+			   (Math.floor (rand x y)))
+			 xs ys)
+		    ", ")
+       ")"))
+
+(def chunk-number (x)
+  (- x (% x chunk-size)))
+
+(def drawp (ctx (p0 p1))
+  (ctx.fillRect p0 p1 1 1))
+
+(def hills-around (hills p0)
+  (let cn (chunk-number p0)
+    (mapcat [or hills:_ ()] (list (- cn chunk-size) cn (+ cn chunk-size)))))
+
+(def hills-between (hills pa0 pb0)
+  (with (ca (- (chunk-number pa0) chunk-size)
+	 i ca
+	 res ())
+    (while (< i (+ chunk-size pb0))
+      (res.push (or hills:i ()))
+      (zap + i chunk-size))
+    (with (res (apply cat res)
+	   start (index-by [< pa0 _.geom:1] res)
+	   end (index-by [< pb0 _.geom:0] res))
+      (slice res start end))))
+
+(def draw-hills (ctx hills p0 space)
+  (let foo (hills-between hills (- p0 space) (+ p0 space))
+    (each g foo 
+      (= ctx.fillStyle g.color)
+      (let h g.geom
+	(ctx.fillRect h:0 h:2 (- h:1 h:0 -0.09) 50)))
+    (= ctx.strokeStyle "#447711")
+    (= ctx.lineWidth 0.3)
+    (= ctx.lineCap 'round)
+    (each g foo
+      (let h g.geom
+	(ctx.beginPath)
+	(ctx.moveTo h:0 h:2)
+	(ctx.lineTo h:1 h:2)
+	(ctx.stroke)
+	(each tree g.trees
+	  (let tp tree.p
+	    (= ctx.fillStyle "#553311")
+	    (ctx.fillRect (- tp 1) h:2 2 -10)
+	    (= ctx.fillStyle tree.color)
+	    (ctx.beginPath)
+	    (ctx.arc tp (- h:2 10) 5 0 6)
+	    (ctx.fill))))
+      (= ctx.fillStyle fruit-color)
+      (each p g.fruits
+	(ctx.fillRect (- p:0 0.5) (- p:1 0.5) 1 1))
+      (= ctx.fillStyle "#eeaa11")
+      (let bla g.enemies
+	(each e bla
+	  (ctx.fillRect (- e:0 0.5) e:1 1 -1))))))
+
+(mac w/ctx (ctx 'body)
+  `(do
+     ((, ctx).save)
+     ,@body
+     ((, ctx).restore)))
+
+(def draw-scene (ctx (hs0 hs1 hs2) pos)
+  (w/ctx ctx
+  (let grad (ctx.createLinearGradient 0 0 0 600)
+    (grad.addColorStop 0 "#113355")
+    (grad.addColorStop 0.3 "#2277aa")
+    (grad.addColorStop 1 "#bb4466")
+    (= ctx.fillStyle grad))
+   (ctx.fillRect 0 0 800 600)
+  '(ctx.scale 0.2 0.2)
+  '(ctx.translate 1600 1200)
+  '(= ctx.strokeStyle "#000000")
+  '(= ctx.lineWidth 8)
+  '(ctx.strokeRect 0 0 800 600)
+  (let cam (plus pos '(0 -2))
+   (w/ctx ctx
+     (ctx.scale 8 8)
+     (ctx.translate (- (* cam:0 -1) -48) (- (* cam:1 -1) -32))
+     (draw-hills ctx hs0 pos:0 52))
+   (w/ctx ctx
+     (= ctx.fillStyle "rgba(50, 200, 230, .2)")
+     (ctx.fillRect 0 0 800 600))
+   (w/ctx ctx
+     (ctx.scale 16 16)
+     (ctx.translate (- (* cam:0 -1) -24) (- (* cam:1 -1) -16))
+     (draw-hills ctx hs1 pos:0 27))
+   (w/ctx ctx
+     (= ctx.fillStyle "rgba(50, 200, 230, .2)")
+     (ctx.fillRect 0 0 800 600))
+   (w/ctx ctx
+     (ctx.scale 32 32)
+     (ctx.translate (- (* cam:0 -1) -12) (- (* cam:1 -1) -8))
+     (draw-hills ctx hs2 pos:0 15)
+     (= ctx.fillStyle "rgb(50, 20, 23)")
+     (ctx.fillRect (- pos:0 0.5) pos:1 1 -1)))))
+
+(def hill-at (p0 hills)
+  (find [< _.geom:0 p0 _.geom:1] (hills-around hills p0)))
+
+(def floor-at (p0 hills)
+  (or (hill-at p0 hills) (obj geom '(0 0 0))).geom:2)
+
+(assign popas ())
+
+(def play-pop ()
+  (let played false
+    (each-while popa popas (no played)
+      (when popa.ended
+	(popa.play)
+	(= played true)))
+    (if (no played)
+	(let popa (|new Audio| (str "assets/pop"
+				    (Math.floor (rand 1 4))
+				    ".ogg"))
+	  (popa.play)
+	  (popas.push popa)
+	  (prn 'new)))))
+
+(def do-fruits (p hills)
+  (w/res 0
+    (each hill (hills-around hills p:0)
+      (awhen (index-by [< (distance _ p) 1.4] hill.fruits)
+	(play-pop)
+	(hill.fruits.splice it 1)
+	(++ res)))))
+
+(def make-hills (behind)
+  (with (hills (obj 0 (list (obj geom '(0 6 0)
+				 color (rand-color '(100 40 10) '(200 140 50))
+				 trees ()
+				 fruits ()
+				 enemies ())))
+	 pbla '(6 0)
+	 treenes (rand 0 1)
+         i 0)
+    (while (< i 400)
+      (with (left pbla:0
+	     offset pbla:1
+	     bias (if behind
+		      (if (< (floor-at left behind) offset)
+			  -1
+			  1)
+		      0)
+	     geom2 (list left (+ left (Math.floor (rand 2 22)))
+			 (+ offset bias (Math.floor (rand -5 6))))
+	     tree (if (< (rand 0 1) treenes)
+		      (obj p (rand (+ left 1) (- geom2:1 1))
+			   color (rand-color '(20 100 20) '(90 250 90))))
+	     hill (obj geom geom2
+		       color (rand-color '(100 40 10) '(200 140 50))
+		       trees (if tree
+				 (list tree)
+				 ())
+		       fruits (if tree
+				  (map [plus (list tree.p (- geom2:2 10))
+					     (mul (on-circle (* (/ _ 11) tau)) 3)]
+				       (range 11))
+				  ())
+		       enemies (if (< 0.8 (Math.random))
+				   (list (list (rand left geom2:1) geom2:2 1))
+				   ())))
+	(= treenes (confine -0.5 (mutate treenes 0.1) 2))
+	"Have to name geom2 with a 2 so that delet doesn't rename the geom attr above"
+	(= pbla (list geom2:1 geom2:2))
+	(zap (fn (x) (cat (or x ()) (list hill)))
+	     hills:(chunk-number left))
+	(++ i)))
+    hills))
+
+(def now ()
+  (asnumber (new Date)))
+
+(def stroke-fill-text (ctx s p)
+  (ctx.strokeText s p:0 p:1)
+  (ctx.fillText s p:0 p:1))
+
+(mac transfer (src dst amt)
+  (w/uniq g
+    `(let ,g (Math.min ,src ,amt)
+       (zap - ,src ,g)
+       (zap + ,dst ,g))))
+
+(def game-over (ctx (pos0) nfruits)
+  (with (last (now)
+	 points 0)
+    ((fun frame ()
+       (with (t (now)
+	      dur (- t last)
+	      foo (* 0.1 dur))
+	 (if (< 0 pos0)
+	     (transfer pos0 points foo)
+	     (when (< 0 nfruits)
+	       (transfer nfruits points foo)))
+	 (ctx.fillRect 0 0 800 600)
+	 (w/ctx ctx
+	   (= ctx.fillStyle "#ffcc33")
+	   (= ctx.strokeStyle "#000000")
+	   (= ctx.font "40px sans-serif")
+	   (= ctx.lineWidth 2)
+	   (stroke-fill-text ctx (str "position: " (Math.floor pos0)) '(50 250))
+	   (stroke-fill-text ctx (str "fruits: " (Math.floor nfruits)) '(50 300))
+	   (stroke-fill-text ctx (str "points: " (Math.floor points)) '(50 350))
+	   (= ctx.font "80px sans-serif")
+	   (stroke-fill-text ctx "Game Over" '(50 150)))
+	(= last t)
+	(if (is 0 pos0 nfruits)
+	    null
+	    (requestAnimationFrame frame)))))))
+
+((jQuery).ready
+ [with (canvases (jQuery "#graph")
+	canvas (get canvases 0)
+	ctx (canvas.getContext "2d")
+	times ()
+	counter 0
+	last (now)
+	hills0 (make-hills)
+	hills1 (make-hills hills0)
+	scene (list hills0 hills1 (make-hills hills1))
+	jumpstart false
+	starth scene:2:0:0
+	pos (list (+ 1 starth.geom:0) starth.geom:2)
+	highest 100
+	bla ()
+	nfruits 0
+	gravity 0.15
+	left false
+	right false
+	deathaudio (|new Audio| "assets/impactcrunch03.ogg")
+	jumpaudio (|new Audio| "assets/jump.ogg")
+	landaudio (|new Audio| "assets/jumpland.ogg")
+	music (|new Audio| "assets/dream-journey.ogg")
+	posm '(0 0))
+   (= music.loop true)
+   (music.play)
+   (= deathaudio.preload 'auto)
+   (callback ((jQuery document).keydown) (e)
+     (case (String.fromCharCode e.which)
+       W (when (and (no jumpstart) (<= (floor-at pos:0 scene:2) pos:1))
+	   (jumpaudio.play)
+	   (= posm:1 -20)
+	   (= gravity 0.03)
+	   (= jumpstart e.timeStamp))
+       A (= left true)
+       D (= right true)))
+   (callback ((jQuery document).keyup) (e)
+     (case (String.fromCharCode e.which)
+       W (do
+	   (= gravity 0.09)
+	   (= jumpstart false))
+       A (= left false)
+       D (= right false)))
+   ((fun frame ()
+      (with (t (now)
+	     dur (- t last))
+	(= posm:0 (if (and left (no right))
+		      -0.01
+		      (and right (no left))
+		      0.01
+		      0))
+	(when (<= pos:1 (floor-at (+ pos:0 (* dur posm:0)) scene:2))
+	    (= pos:0 (+ pos:0 (* posm:0 dur))))
+	(let floor (floor-at pos:0 scene:2)
+	  (let floating (< pos:1 floor)
+	    (= pos:1 (Math.min (+ pos:1 (* 0.001 posm:1 dur)) floor))
+	    (if (and floating (is pos:1 floor))
+		(landaudio.play)))
+	  (if (< pos:1 floor)
+	      (zap + posm:1 (* gravity dur))
+	      (= posm:1 0)))
+	(each hills scene
+	  (each h (hills-around hills pos:0)
+	    (each e h.enemies
+	      (let new0 (+ e:0 (* dur 0.001 e:2))
+		(if (< h.geom:0 new0 h.geom:1)
+		    (= e:0 new0)
+		    (zap * e:2 -1))))))
+	(zap + nfruits (do-fruits pos scene:2))
+	(zap Math.min highest pos:1)
+	(draw-scene ctx scene pos)
+	(= ctx.fillStyle "#000000")
+	(= times:counter dur)
+	(++ counter)
+	(zap % counter 30)
+	(w/ctx ctx
+	  (= ctx.fillStyle "#ffcc33")
+	  (= ctx.strokeStyle "#441100")
+	  (= ctx.font "40px sans-serif")
+	  (= ctx.lineWidth 2)
+	  (ctx.strokeText nfruits 50 40)
+	  (ctx.fillText nfruits 50 40))
+	(ctx.fillText (apply Math.max times) 50 50)
+	(ctx.fillText (apply Math.min times) 50 60)
+	(= last t))
+      (let lose false
+	(each h (hills-around scene:2 pos:0)
+	  (each e h.enemies
+	    (when (< (distance pos e) 1)
+	      (= lose true))))
+	(if lose
+	    (do
+	      (deathaudio.play)
+	      (game-over ctx pos nfruits))
+	    (requestAnimationFrame frame))))
+    last)])
+
+     
+   
